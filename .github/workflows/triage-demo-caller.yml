@@ -1,0 +1,21 @@
+name: CI Triage Bot
+
+# This is the "consumer" side of the reusable workflow, kept in this repo
+# purely to demonstrate/prove it works (against demo-broken-ci.yml). Any
+# other repo wanting triage copies THIS file (not triage-reusable.yml),
+# points `workflows:` at its own real CI workflow's name, and adds the
+# same three secrets. See README.md -> "Using this in another repo".
+
+on:
+  workflow_run:
+    workflows: ["Demo Broken CI"]
+    types: [completed]
+
+jobs:
+  triage:
+    uses: amowogbaje/ci-triage-bot/.github/workflows/triage-reusable.yml@main
+    secrets:
+      GH_APP_ID: ${{ secrets.GH_APP_ID }}
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+      GH_APP_INSTALLATION_ID: ${{ secrets.GH_APP_INSTALLATION_ID }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

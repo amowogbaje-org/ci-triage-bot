@@ -2,9 +2,13 @@
 CI Failure Triage Bot — entry point.
 
 Run inside GitHub Actions in response to a `workflow_run` `completed`
-event with conclusion `failure`. Reads the event payload GitHub already
-gives us, fetches the failed run's logs, asks an LLM to diagnose it,
-and posts the diagnosis as a PR (or commit) comment.
+event. Reads the event payload GitHub already gives us and posts a status
+comment on the PR (or commit):
+  - conclusion == "failure": fetches logs, diagnoses each failed job with
+    an LLM, posts the diagnosis.
+  - conclusion == "success": posts a short "all clear" comment.
+  - anything else (cancelled, skipped, timed_out, ...): no comment.
+Retriggers update the same comment in place rather than piling up new ones.
 
 Required env vars:
   GH_APP_ID              - GitHub App ID
@@ -57,9 +61,13 @@ If the excerpt is ambiguous, say so honestly in likely_cause rather than guessin
 def main() -> int:
     event = _load_event()
     workflow_run = event["workflow_run"]
+    conclusion = workflow_run.get("conclusion")
 
-    if workflow_run.get("conclusion") != "failure":
-        print(f"Run concluded with '{workflow_run.get('conclusion')}', not 'failure'. Nothing to do.")
+    if conclusion not in ("success", "failure"):
+        # Deliberately silent for cancelled/skipped/timed_out/etc — a status
+        # comment there would be noise, not signal, and there's often no
+        # coherent logs to summarize anyway.
+        print(f"Run concluded with '{conclusion}'. No comment posted for this conclusion.")
         return 0
 
     owner, repo = os.environ["GITHUB_REPOSITORY"].split("/")
@@ -71,6 +79,13 @@ def main() -> int:
         print(f"::error::Auth failed: {e}", file=sys.stderr)
         return 1
 
+    if conclusion == "success":
+        body = _format_success_comment(workflow_run)
+        _post_comment(token, owner, repo, workflow_run, body)
+        print("Posted success comment.")
+        return 0
+
+    # conclusion == "failure" from here on
     failed_jobs = get_failed_jobs(token, owner, repo, run_id)
     if not failed_jobs:
         print("No failed jobs found on this run (maybe it was cancelled). Nothing to do.")
@@ -91,7 +106,7 @@ def main() -> int:
         print("Nothing diagnosable was extracted from the logs.")
         return 0
 
-    body = _format_comment(workflow_run, comment_sections)
+    body = _format_failure_comment(workflow_run, comment_sections)
     _post_comment(token, owner, repo, workflow_run, body)
     print("Posted triage comment.")
     return 0
@@ -158,7 +173,7 @@ def _format_job_section(job, diagnosis: dict) -> str:
     )
 
 
-def _format_comment(workflow_run: dict, sections: list[str]) -> str:
+def _format_failure_comment(workflow_run: dict, sections: list[str]) -> str:
     workflow_name = workflow_run.get("name", "workflow")
     header = (
         f"{_marker(workflow_name)}\n"
@@ -173,6 +188,19 @@ def _format_comment(workflow_run: dict, sections: list[str]) -> str:
         "retries — it reflects the most recent run only. Verify before acting on it._"
     )
     return header + "\n\n---\n\n".join(sections) + footer
+
+
+def _format_success_comment(workflow_run: dict) -> str:
+    workflow_name = workflow_run.get("name", "workflow")
+    return (
+        f"{_marker(workflow_name)}\n"
+        f"## ✅ CI Triage Bot\n"
+        f"**{workflow_name}** run "
+        f"[#{workflow_run.get('run_number')}]({workflow_run.get('html_url')}) "
+        f"passed (attempt {workflow_run.get('run_attempt', 1)}). No issues to report.\n\n"
+        f"---\n"
+        f"_This comment is updated in place on each run — it reflects the most recent result only._"
+    )
 
 
 def _post_comment(token: str, owner: str, repo: str, workflow_run: dict, body: str) -> None:

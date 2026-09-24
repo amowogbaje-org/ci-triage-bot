@@ -2,25 +2,43 @@
 
 Automatically diagnoses failed GitHub Actions runs and posts an AI-generated
 root-cause summary as a PR (or commit) comment. No server, no hosting —
-it runs entirely inside GitHub Actions.
+it runs entirely inside GitHub Actions, and other repos can use it as a
+**reusable workflow** without copying any code.
 
 ```
-workflow fails
+workflow completes (in this repo, or any repo that calls in)
       │
       ▼
 workflow_run "completed" event fires
       │
       ▼
-triage.yml checks conclusion == failure
-      │
-      ▼
-scripts/triage.py:
-  1. auth as GitHub App → short-lived installation token
-  2. GET failed jobs for the run
-  3. download logs.zip, trim to the lines around the error
-  4. send excerpt to Groq (gpt-oss-120b) → { likely_cause, affected_step, confidence, suggested_fix }
-  5. POST comment on the PR (or commit, if no PR)
+that repo's own triage.yml calls .github/workflows/triage-reusable.yml@main
+from THIS repo, which checks out scripts/ and runs triage.py:
+  - conclusion == "success": posts a short "✅ passed" comment
+  - conclusion == "failure":
+      1. auth as GitHub App → short-lived installation token
+      2. GET failed jobs for the run
+      3. download logs.zip, trim to the lines around the error
+      4. send excerpt to Groq (gpt-oss-120b) → { likely_cause, affected_step, confidence, suggested_fix }
+      5. POST/PATCH the diagnosis as a comment
+  - anything else (cancelled, skipped, timed_out, ...): no comment
+Retriggers PATCH the same comment in place rather than adding a new one,
+so the thread always shows just the latest result.
 ```
+
+## Two workflow files, two different jobs
+
+- **`triage-reusable.yml`** — the actual product. Declares `on: workflow_call`
+  and does all the real work (auth, log parsing, LLM call, commenting).
+  Lives only here; no other repo needs its own copy.
+- **`triage-demo-caller.yml`** — a thin example showing how a consuming repo
+  uses it: listens for `workflow_run` on a specific workflow name, then
+  `uses:` the reusable workflow above. In this repo it points at
+  `demo-broken-ci.yml`, purely to prove the whole thing works end to end.
+
+Any other repo that wants triage only ever needs a file shaped like
+`triage-demo-caller.yml` — see below.
+
 
 ## Why a GitHub App instead of a PAT
 
@@ -67,9 +85,9 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 
 The bot uses `openai/gpt-oss-120b`, Groq's recommended replacement for the now-decommissioned Llama 3.3 70B model (as of their 2026-08-16 deprecation — check [console.groq.com/docs/deprecations](https://console.groq.com/docs/deprecations) if this ever breaks again). Groq's free tier (~14,400 requests/day, no billing) is far more than this bot will ever need, since it only calls the API once per failed job.
 
-### 3. Point the trigger at your real workflow(s)
+### 3. Point the demo caller at your real workflow (this repo only)
 
-Edit `.github/workflows/triage.yml`:
+Edit `.github/workflows/triage-demo-caller.yml`:
 
 ```yaml
 on:
@@ -79,20 +97,61 @@ on:
 ```
 
 GitHub's `workflow_run` trigger requires the exact `name:` of the
-workflow(s) you want to listen to — wildcards aren't supported.
+workflow(s) you want to listen to — wildcards aren't supported. (If you're
+setting this up in a *different* repo rather than this one, see "Using this
+in another repo" below instead — you don't edit anything in this repo.)
 
 ### 4. Push to `main`
 
 `workflow_run` only fires for workflows defined on the default branch, so
-both `triage.yml` and the workflow it's watching need to exist on `main`
-before the trigger will work.
+`triage-demo-caller.yml` and the workflow it's watching both need to exist
+on `main` before the trigger will work.
+
+## Using this in another repo
+
+Once this repo (`ci-triage-bot`) is set up and working, any other repo you
+own can get triage without copying `scripts/` or any Python — they call the
+reusable workflow (`triage-reusable.yml`) that lives only here.
+
+1. In the other repo, add `.github/workflows/triage.yml`:
+
+```yaml
+on:
+  workflow_run:
+    workflows: ["That Repo's Real CI Workflow Name"]
+    types: [completed]
+
+jobs:
+  triage:
+    uses: amowogbaje/ci-triage-bot/.github/workflows/triage-reusable.yml@main
+    secrets:
+      GH_APP_ID: ${{ secrets.GH_APP_ID }}
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+```
+
+2. Add the same secrets (`GH_APP_ID`, `GH_APP_PRIVATE_KEY`, `GROQ_API_KEY`)
+   to that repo — the reusable workflow only receives secrets explicitly
+   passed to it here, it does not pull them from `ci-triage-bot`.
+3. Install the same GitHub App on that repo too (Settings → GitHub Apps →
+   your app → Configure → add the repo, or install fresh if it's a
+   different account/org).
+4. **If `ci-triage-bot` is private**, you also need to explicitly allow
+   cross-repo access once: in *this* repo → Settings → Actions → General →
+   scroll to **Access** → select *"Accessible from repositories owned by
+   '<your username>' user"* → Save. If `ci-triage-bot` is public (or once
+   you move things into an organization and both repos are in it), this
+   step isn't needed.
+
+That's it — no `scripts/` folder, no `requirements.txt`, nothing Python in
+the consuming repo at all.
 
 ## Proof of working (this repo)
 
 `.github/workflows/demo-broken-ci.yml` runs `tests/test_broken_on_purpose.py`,
 which contains two deliberately failing tests (a `ZeroDivisionError` and a
 plain failed assertion). Every push/PR triggers it, it fails, and
-`triage.yml` fires in response — visible in this repo's **Actions** tab and
+`triage-demo-caller.yml` fires in response — visible in this repo's **Actions** tab and
 as real comments in PR history.
 
 To trigger it yourself:
@@ -139,11 +198,12 @@ comments.
 
 ```
 .github/workflows/
-  triage.yml            # the bot itself
+  triage-reusable.yml    # the actual product — on: workflow_call
+  triage-demo-caller.yml # example consumer: triggers on demo-broken-ci.yml
   demo-broken-ci.yml     # intentionally-broken workflow, for proof of working
 scripts/
-  triage.py             # entry point / orchestration
-  github_app_auth.py    # JWT + installation token exchange
+  triage.py              # entry point / orchestration
+  github_app_auth.py     # JWT + installation token exchange
   log_parser.py          # log download + excerpt extraction
 tests/
   test_broken_on_purpose.py
