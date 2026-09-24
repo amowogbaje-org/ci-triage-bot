@@ -1,0 +1,28 @@
+name: Demo Broken CI
+
+# This workflow exists purely to generate real, visible failures so the
+# triage bot has something to diagnose. Feel free to delete once you've
+# confirmed the bot works, or keep it around as a live demo.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Run test suite (this is expected to fail)
+        run: pytest tests/ -v
