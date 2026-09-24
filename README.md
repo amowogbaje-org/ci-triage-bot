@@ -18,7 +18,7 @@ scripts/triage.py:
   1. auth as GitHub App → short-lived installation token
   2. GET failed jobs for the run
   3. download logs.zip, trim to the lines around the error
-  4. send excerpt to Claude → { likely_cause, affected_step, confidence, suggested_fix }
+  4. send excerpt to Groq (Llama 3.3 70B) → { likely_cause, affected_step, confidence, suggested_fix }
   5. POST comment on the PR (or commit, if no PR)
 ```
 
@@ -57,7 +57,15 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 | `GH_APP_ID` | the App ID from step 1 |
 | `GH_APP_PRIVATE_KEY` | full contents of the `.pem` file |
 | `GH_APP_INSTALLATION_ID` | optional — only set this if auto-discovery fails |
-| `ANTHROPIC_API_KEY` | your Anthropic API key |
+| `GROQ_API_KEY` | your Groq API key (free tier, no card needed — see below) |
+
+#### Getting a Groq API key
+
+1. Go to **https://console.groq.com** and sign in (GitHub/Google login works, no card required).
+2. **API Keys** in the left sidebar → **Create API Key**.
+3. Copy the value (starts with `gsk_...`) — shown once — and save it as the `GROQ_API_KEY` secret above.
+
+The bot uses `llama-3.3-70b-versatile`. Groq's free tier (~14,400 requests/day, no billing) is far more than this bot will ever need, since it only calls the API once per failed job.
 
 ### 3. Point the trigger at your real workflow(s)
 

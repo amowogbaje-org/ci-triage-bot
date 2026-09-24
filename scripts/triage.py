@@ -10,7 +10,7 @@ Required env vars:
   GH_APP_ID              - GitHub App ID
   GH_APP_PRIVATE_KEY     - GitHub App private key (PEM)
   GH_APP_INSTALLATION_ID - optional; auto-discovered if omitted
-  ANTHROPIC_API_KEY      - LLM API key
+  GROQ_API_KEY            - LLM API key (console.groq.com, free tier)
   GITHUB_EVENT_PATH      - provided automatically by Actions
   GITHUB_REPOSITORY      - provided automatically by Actions, "owner/repo"
 """
@@ -27,8 +27,10 @@ from github_app_auth import get_installation_token, GitHubAppAuthError
 from log_parser import get_failed_jobs, download_run_logs_zip, extract_excerpt_for_job
 
 GITHUB_API = "https://api.github.com"
-ANTHROPIC_API = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-sonnet-4-6"
+# Groq's free tier: no credit card, ~14,400 req/day, OpenAI-compatible
+# chat-completions format. https://console.groq.com
+GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # Embedded in every comment the bot posts so it can find its own previous
 # comment on retriggers and update it in place, instead of piling up a new
@@ -98,7 +100,7 @@ def _load_event() -> dict:
 
 
 def _diagnose(excerpt: str, job_name: str, failed_step: str | None) -> dict:
-    api_key = os.environ["ANTHROPIC_API_KEY"]
+    api_key = os.environ["GROQ_API_KEY"]
     user_prompt = (
         f"Job: {job_name}\n"
         f"Step GitHub marked as failed: {failed_step or 'unknown'}\n\n"
@@ -106,24 +108,27 @@ def _diagnose(excerpt: str, job_name: str, failed_step: str | None) -> dict:
     )
 
     resp = requests.post(
-        ANTHROPIC_API,
+        GROQ_API,
         headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
         },
         json={
-            "model": ANTHROPIC_MODEL,
+            "model": GROQ_MODEL,
             "max_tokens": 500,
-            "system": SYSTEM_PROMPT,
-            "messages": [{"role": "user", "content": user_prompt}],
+            "temperature": 0.2,
+            # Groq supports OpenAI-style JSON mode; combined with the
+            # system prompt's explicit schema this keeps output parseable.
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
         },
         timeout=60,
     )
     resp.raise_for_status()
-    text = "".join(
-        block.get("text", "") for block in resp.json().get("content", []) if block.get("type") == "text"
-    ).strip()
+    text = resp.json()["choices"][0]["message"]["content"].strip()
 
     text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
