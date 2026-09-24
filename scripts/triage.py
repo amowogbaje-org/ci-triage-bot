@@ -210,12 +210,11 @@ def _post_comment(token: str, owner: str, repo: str, workflow_run: dict, body: s
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    pull_requests = workflow_run.get("pull_requests") or []
     workflow_name = workflow_run.get("name", "workflow")
     marker = _marker(workflow_name)
+    pr_number = _resolve_pr_number(headers, owner, repo, workflow_run)
 
-    if pull_requests:
-        pr_number = pull_requests[0]["number"]
+    if pr_number is not None:
         list_url = f"{GITHUB_API}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         create_url = list_url
         patch_url_tpl = f"{GITHUB_API}/repos/{owner}/{repo}/issues/comments/{{comment_id}}"
@@ -238,6 +237,40 @@ def _post_comment(token: str, owner: str, repo: str, workflow_run: dict, body: s
         resp = requests.post(create_url, headers=headers, json={"body": body}, timeout=30)
 
     resp.raise_for_status()
+
+
+def _resolve_pr_number(headers: dict, owner: str, repo: str, workflow_run: dict) -> int | None:
+    """
+    workflow_run["pull_requests"] is GitHub's own best-effort guess, but it's
+    populated at webhook-delivery time and is known to come back empty even
+    for legitimate same-repo PRs (not just forks). Rather than trust it
+    blindly and silently fall back to a commit comment, double-check with
+    the dedicated "list pull requests associated with a commit" endpoint,
+    which looks the association up fresh rather than relying on a payload
+    snapshot.
+    """
+    pull_requests = workflow_run.get("pull_requests") or []
+    if pull_requests:
+        return pull_requests[0]["number"]
+
+    sha = workflow_run.get("head_sha")
+    if not sha:
+        return None
+
+    resp = requests.get(
+        f"{GITHUB_API}/repos/{owner}/{repo}/commits/{sha}/pulls",
+        headers=headers,
+        timeout=30,
+    )
+    if not resp.ok:
+        return None
+
+    prs = resp.json()
+    if not prs:
+        return None
+
+    open_prs = [p for p in prs if p.get("state") == "open"]
+    return (open_prs[0] if open_prs else prs[0])["number"]
 
 
 def _find_existing_comment(headers: dict, list_url: str, marker: str) -> int | None:

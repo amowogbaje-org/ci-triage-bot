@@ -1,0 +1,29 @@
+name: Demo Passing CI
+
+# Mirror of demo-broken-ci.yml, but designed to always succeed. Exists so
+# the bot's "success" comment path (added after the failure-only version)
+# has something real to trigger against, same as demo-broken-ci.yml does
+# for the failure path.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pytest
+
+      - name: Run test suite (this is expected to pass)
+        run: pytest tests/test_passing_on_purpose.py -v
