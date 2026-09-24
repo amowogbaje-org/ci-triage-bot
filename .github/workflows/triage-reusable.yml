@@ -32,7 +32,7 @@ jobs:
       - name: Checkout triage bot source
         uses: actions/checkout@v4
         with:
-          repository: amowogbaje/ci-triage-bot
+          repository: amowogbaje-org/ci-triage-bot
           ref: main
 
       - name: Set up Python

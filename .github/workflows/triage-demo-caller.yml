@@ -13,7 +13,7 @@ on:
 
 jobs:
   triage:
-    uses: amowogbaje/ci-triage-bot/.github/workflows/triage-reusable.yml@main
+    uses: amowogbaje-org/ci-triage-bot/.github/workflows/triage-reusable.yml@main
     secrets:
       GH_APP_ID: ${{ secrets.GH_APP_ID }}
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
