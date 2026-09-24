@@ -30,7 +30,11 @@ GITHUB_API = "https://api.github.com"
 # Groq's free tier: no credit card, ~14,400 req/day, OpenAI-compatible
 # chat-completions format. https://console.groq.com
 GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# llama-3.3-70b-versatile was decommissioned by Groq on 2026-08-16.
+# gpt-oss-120b is Groq's recommended production-tier replacement (their
+# other suggested option, qwen3.6-27b, is Preview-tier and not meant for
+# production use). See https://console.groq.com/docs/deprecations
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 # Embedded in every comment the bot posts so it can find its own previous
 # comment on retriggers and update it in place, instead of piling up a new

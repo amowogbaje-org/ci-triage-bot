@@ -18,7 +18,7 @@ scripts/triage.py:
   1. auth as GitHub App → short-lived installation token
   2. GET failed jobs for the run
   3. download logs.zip, trim to the lines around the error
-  4. send excerpt to Groq (Llama 3.3 70B) → { likely_cause, affected_step, confidence, suggested_fix }
+  4. send excerpt to Groq (gpt-oss-120b) → { likely_cause, affected_step, confidence, suggested_fix }
   5. POST comment on the PR (or commit, if no PR)
 ```
 
@@ -65,7 +65,7 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 2. **API Keys** in the left sidebar → **Create API Key**.
 3. Copy the value (starts with `gsk_...`) — shown once — and save it as the `GROQ_API_KEY` secret above.
 
-The bot uses `llama-3.3-70b-versatile`. Groq's free tier (~14,400 requests/day, no billing) is far more than this bot will ever need, since it only calls the API once per failed job.
+The bot uses `openai/gpt-oss-120b`, Groq's recommended replacement for the now-decommissioned Llama 3.3 70B model (as of their 2026-08-16 deprecation — check [console.groq.com/docs/deprecations](https://console.groq.com/docs/deprecations) if this ever breaks again). Groq's free tier (~14,400 requests/day, no billing) is far more than this bot will ever need, since it only calls the API once per failed job.
 
 ### 3. Point the trigger at your real workflow(s)
 
