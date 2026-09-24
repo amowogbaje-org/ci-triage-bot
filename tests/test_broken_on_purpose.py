@@ -16,4 +16,9 @@ def test_division_by_zero():
 
 def test_wrong_assertion():
     # A plain failed assertion, no exception.
-    assert 2 + 2 == 4
+    assert 2 + 2 == 7
+
+
+def test_wrong_assertion2():
+    # A plain failed assertion, no exception.
+    assert 4 + 2 == 6
